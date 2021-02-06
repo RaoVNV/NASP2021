@@ -1,36 +1,40 @@
 ---
 title: "Choosing a Statistical Model Amidst Ceiling and Floor Effects"
-subtitle: "Rao, V.N.V., Running, K., & Codding, R.S. (2021)."
+subtitle: Rao, V.N.V., Running, K., & Codding, R.S. (2021).
+output: pdf_document
 ---
 
-# Instructions 
+# INSTRUCTIONS 
 
 This file contains R code and output to accompany *Choosing a statistical model amidst ceiling and floor effects* by Rao, Running, and Codding (2021). Specifically, it will diagnose a ceiling or floor effect (CFE), determine whether it is inappropriate to use an ANOVA model and if so whether it is appropriate to use a Tobit model, and subsequently fit and interpret a Tobit model. 
 
 This file assumes that readers are already familiar with the basics of using R, as well as the basics of the ANOVA model and general linear models. 
 
-Use this file to follow along with the Tobit R Guide file, available at `https://github.com/RaoVNV/NASP2021/`.
+Use both the Tobit R Guide pdf and Tobit R code to follow along and practice analyzing data with a CFE. Both files are available at `https://github.com/RaoVNV/NASP2021/`.
 
 
 ## Install and load Libraries
 
-ONLY if you have not previously installed these libraries, then run the following chunk: 
-```{r}
-install.packages(c("ggplot2", "dplyr", "VGAM", "sm", "MASS"))
+If you have not previously installed these libraries, then run the following chunk: 
+```{r, eval=FALSE}
+install.packages(c("ggplot2", "ggthemes", "dplyr", "VGAM", "sm", "MASS"))
 ```
 
 Load the following libraries:
-```{r}
-library(ggplot2)
-library(dplyr)
-library(VGAM)
-library(sm)
-library(MASS)
-cbPalette <- c("#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+```{r, warning=FALSE, message=FALSE}
+library(ggplot2) # data visualization 
+library(ggthemes) # data visualization
+library(dplyr) # data wrangling
+library(VGAM) # tobit model
+library(sm) # model diagnostics
+library(MASS) # post hoc analyses
+
+cbPalette <- c("#999999", "#E69F00", "#56B4E9") # 3-color color-blind palette
 
 set.seed(17293759)
 ```
 
+\newpage
 
 # DATA
 
@@ -63,10 +67,10 @@ summary(fraction_knowledge)
 
 ## Initial Processing
 
-When we will analyze differences in scores between each of the experimental groups based on *condition* variable, we want to use the `control` group as a reference group. We can set the order that R processes each group by specifying levels of a factor. 
+We will analyze differences in scores between each of the experimental conditions using the *condition* variable. We want to use the `Control` condition as a reference group. We can set the order that R processes each condition by specifying levels of a factor. 
 
 ```{r}
-#Make sure the group variable is in the order we want
+#Make sure the experimental conditions are in the order we want
 fraction_knowledge$condition <-
   factor(fraction_knowledge$condition,
     levels=c("Control","Concepts-First","Iterative"))
@@ -74,126 +78,154 @@ fraction_knowledge$condition <-
 
 Visit `https://github.com/RaoVNV/NASP2021/` to review the `Fraction Knowledge Data Dictionary` for more information about each of the variables contained in this dataset, and the `Fraction Knowledge Data Introduction` for more information about the experimental study for which this data was collected. 
 
+\newpage
+
 # DESCRIPTIVE STATISTICS
 
-In this example, we will examine the students' scores on the procedures assessment at post-test. Our main analysis goal is to identify whether there were group differences between each of three experimental conditions. One important covariates that may affect students' post-test scores are their pre-test scores. The study used block randomization to assign students within each classroom to each experimental condition based on their pre-test score. Therefore, the design matches that of the Analysis of Covariance (ANCOVA) model, with post scores modelled as a function of experimental condition and pre-test scores: `procedures_post ~ condition + procedures_pre`. 
+In this example, we will examine the students' scores on the procedures assessment at post-test. Our main analysis goal is to identify whether there were group differences between each of three experimental conditions. One important covariate that may affect students' post-test scores are their pre-test scores. 
+
+The study used block randomization to assign students within each classroom to an experimental condition based on their pre-test score. Therefore, the design matches that of the Analysis of Covariance (ANCOVA) model, where post scores are modelled as a function of experimental condition and pre-test scores: `procedures_post ~ condition + procedures_pre`. 
 
 However, before we fit the ANCOVA model, we must explore the data with descriptive summaries and visualizations, which will help us examine ANCOVA's suitability. 
 
 ## Diagnosing the CFE
 
-First, let's look at the distribution for procedure knowledge post-test scores by group:
+First, let's look at the distribution for procedure knowledge post-test scores by experimental condition:
 
-```{r}
-ggplot(data=fraction_knowledge, 
-       aes(y=procedures_post, x=condition, color=condition)
+```{r, warning=FALSE, message=FALSE}
+ggplot(data=fraction_knowledge, # name of our data
+  aes(y=procedures_post, # response variable
+      x=condition, # explanatory variable
+      color=condition # assign one color per condition
+  )
 )  + 
-  scale_fill_manual(values=cbPalette) + scale_colour_manual(values=cbPalette) +
-  geom_boxplot(outlier.shape=NA, alpha=0.5) + 
-  geom_jitter(width=0.25)+
-  ggtitle("Procedure Knowledge Post-Test Scores by Experimental Condition") +
-  ylab("Score (out of 40)") + 
-  xlab("Experimental Condition")
+  scale_colour_manual(values=cbPalette) + # use the color blind palette
+  geom_boxplot(outlier.shape=NA, # creates a boxplot
+      alpha=0.5) + # makes points transparent
+  geom_jitter(width=0.25)+ # ensures points do not overlap
+  theme_tufte() + # applies theme consistent with Tufte's maxims
+  ggtitle("Procedure Knowledge Post-Test Scores") + # main title
+  theme(plot.title = element_text(hjust = 0.5)) + # centers the title
+  ylab("Score (out of 40)") + # y-axis label
+  xlab("Experimental Condition") + # x-axis label
+  theme(legend.title = element_blank(), # suppresses legend label
+        legend.position = "bottom") # fixes legend position
 ```
 
 We can see that there are quite a few *dots* bunched up right around a value of 40. That signifies that several students have achieved the maximum score. This is evidence of a ceiling effect. ANOVA and ANCOVA models are based on the assumption that scores are normally distributed within groups. While *true* procedural knowledge scores may still be normally distributed, our observed scores are not, due to the ceiling effect. 
 
-We can further examine the extent of the ceiling effect by creating dotplots for each group.
+We can further examine the extent of the ceiling effect by creating dotplots for each experimental condition. 
 
-### Control Group
+\newpage
 
-```{r}
+### Control Condition
+
+```{r, warning=FALSE, message=FALSE}
 ggplot(
-  data=(fraction_knowledge %>% filter(condition=="Control")), 
+  data=(fraction_knowledge %>% filter(condition=="Control")), # subsets the data
   aes(x=procedures_post, fill=condition)
 ) + 
-  scale_fill_manual(values=cbPalette[1]) + #Matches Color used in the previous graph
-  theme(legend.position = "none") + #Hides the Legend
-  scale_y_continuous(NULL, breaks = NULL) + #Hides the Y-Axis
-  scale_x_continuous(limits=c(0,40), breaks = seq(0,40,5)) + #Specifies the X-axis
-  geom_dotplot(alpha=0.5, binwidth=1) + #Creates a dotplot
-  ggtitle("Procedure Knowledge Post-Test Scores: Control Group") + #Adds a main title
-  ylab("Relative Frequency") + #Adds a y-axis label
-  xlab("Score (out of 40)") #Adds an x-axis label
+  scale_fill_manual(values=cbPalette[1]) + # matches Color used in the previous graph
+  scale_y_continuous(NULL, breaks = NULL) + # hides the Y-Axis
+  scale_x_continuous(limits=c(0,40), breaks = seq(0,40,5)) + # specifies the X-axis
+  geom_dotplot(alpha=0.5, binwidth=1) + # creates a dotplot
+  theme_tufte() + 
+  theme(legend.position = "none") + # hides the Legend
+  ggtitle("Procedure Knowledge Post-Test Scores", # creates a main title
+          "Control Condition") + # creates a subtitle
+  ylab("Relative Frequency") + 
+  xlab("Score (out of 40)") 
 ```
 
-Seven of the 38 students in the Control group scored the maximum score.  
+Seven of the 38 students in the `Control` condition scored the maximum score, with a further four one point shy of the maximum.  
 
+\newpage 
 
-### Concepts First Group
+### Concepts First Condition
 
-```{r}
+```{r, warning=FALSE, message=FALSE}
 ggplot(
   data=(fraction_knowledge %>% filter(condition=="Concepts-First")), 
   aes(x=procedures_post, fill=condition)
 ) + 
   scale_fill_manual(values=cbPalette[2]) + 
-  theme(legend.position = "none") +
   scale_y_continuous(NULL, breaks = NULL) + 
   scale_x_continuous(limits=c(0,40), breaks = seq(0,40,5)) + 
   geom_dotplot(alpha=0.5, binwidth=1) + 
-  ggtitle("Procedure Knowledge Post-Test Scores: Concepts-First Group") +
+  theme_tufte() + 
+  theme(legend.position = "none") + 
+  ggtitle("Procedure Knowledge Post-Test Scores",
+          "Concepts-First Condition") +
   ylab("Relative Frequency") + 
-  xlab("Score (out of 40)")
+  xlab("Score (out of 40)") 
 ```
 
-Twelve of the 38 students in the Concepts-First group scored the maximum score, and another 13 students were only one point shy of the maximum. 
+Twelve of the 38 students in the `Concepts-First` condition scored the maximum score, and another 13 students were only one point shy of the maximum. 
  
+\newpage
 
-### Iterative Group
+### Iterative Condition
 
-```{r}
+```{r, warning=FALSE, message=FALSE}
 ggplot(
   data=(fraction_knowledge %>% filter(condition=="Iterative")), 
   aes(x=procedures_post, fill=condition)
 ) + 
   scale_fill_manual(values=cbPalette[3]) + 
-  theme(legend.position = "none") +
   scale_y_continuous(NULL, breaks = NULL) + 
   scale_x_continuous(limits=c(0,40), breaks = seq(0,40,5)) + 
   geom_dotplot(alpha=0.5, binwidth=1) + 
-  ggtitle("Procedure Knowledge Post-Test Scores: Iterative Group") +
+  theme_tufte() + 
+  theme(legend.position = "none") + 
+  ggtitle("Procedure Knowledge Post-Test Scores",
+          "Iterative Condition") +
   ylab("Relative Frequency") + 
-  xlab("Score (out of 40)")
+  xlab("Score (out of 40)") 
 ```
 
-Eighteen of the 38 students in the Iterative group scored the maximum score, and another 8 students were only one point shy of the maximum. 
+Eighteen of the 38 students in the `Iterative` condition scored the maximum score, and another 8 students were only one point shy of the maximum. 
+
+\newpage
 
 ## Quantifying the CFE
 
-Having diagnosed ceiling effects in all three groups, we need to quantify the magnitude of the ceiling effect, in order to help determine which statistical model to utilize. 
+Having diagnosed ceiling effects in all three experimental conditions, we need to quantify the magnitude of the ceiling effect in order to help determine which statistical model to utilize. 
 
 ```{r}
-#Percentage of observations at ceiling by group
+#Percentage of observations at or near ceiling by experimental condition
 fraction_knowledge %>% 
   group_by(condition) %>% 
-  filter(!is.na(procedures_post)) %>%
+  filter(!is.na(procedures_post)) %>% # remove observations with missing values
   summarise(
-      p.atCFE = count(procedures_post==40)/n(),
-      p.nearCFE= count(procedures_post>=39)/n()
+      p.atCFE = sum(procedures_post==40)/n(), # percent (by condition) at ceiling
+      p.nearCFE= sum(procedures_post>=39)/n() # percent (by condition) near ceiling
   )
 ```
 
-We see in this table that approximately 19% of scores in the `Control` group are at the ceiling, and 30% are within 1 point of the ceiling. Similarly, approximately 33% of scores in the `Concepts-First` group are at the ceiling and 49% of scores in the `Iterative` group are at the ceiling. 
+We see in this table that approximately 19% of scores in the `Control` condition are at the ceiling, and 30% are within 1 point of the ceiling. Similarly, approximately 33% of scores in the `Concepts-First` condition are at the ceiling and 49% of scores in the `Iterative` condition are at the ceiling. 
 
-The 30-20 rule says that to use ANOVA, no group should have more than 30% of it's observations at the ceiling. This is violated by both the `Concepts-First` and `Iterative` groups. Furthermore, the difference in the percentage of observations at the ceiling between two groups should not be more than 20%. This is violated by the difference between the `Iterative` group and the `Control` group, which is nearly 30 percentage points. Therefore, we should not use ANOVA or ANCOVA to analyze this data. 
+The 30-20 rule says that to use ANOVA, no group should have more than 30% of it's observations at the ceiling. This is violated by both the `Concepts-First` and `Iterative` conditions Furthermore, the difference in the percentage of observations at the ceiling between two groups should not be more than 20%. This is violated by the difference between the `Iterative` condition and the `Control` condition, which is nearly 30 percentage points. Therefore, we should not use ANOVA or ANCOVA to analyze this data. 
 
-To decide whether to use Tobit, we can follow the 70% rule. If no more than 70% of observations are at the ceiling in each group, then we can use Tobit regression. Since the proportions are all well below 70%, we can use Tobit regression to analyze this data. 
+The tobit regression model, a type of censored regression models, explicitly aims to account for observed scores truncated at either a floor or ceiling. The tobit model assumes that an individual's true score is not limited to the observed range. It produces estimates for true scores based on the observed cumulative frequency distributions within the range of observed scores.
 
+To decide whether to use the tobit model when faced with a CFE, we can follow the 70% rule. If no more than 70% of observations are at the ceiling in each group, then we can use Tobit regression. Since the proportions are all well below 70%, we can use Tobit regression to analyze this data. Note that even thought nearly 70% of observations in the `Concepts-First` and `Iterative` condition are *near* the ceiling, this still does not violate the 70% rule. First, the rule is for the number of observations *at* the ceiling, and is relatively robust. Second, even with 70% near the ceiling, the rule still suggests that the bias in the Tobit model will be small. 
+
+
+\newpage 
 
 # TOBIT REGRESSION
 
-Tobit regression carries the same model assumptions as generalized linear models: normality of residuals, and homoscedasticity. We will first fit the model before examining the model diagnostics. 
+Tobit regression carries the same model assumptions as generalized linear models: normality of residuals and homoscedasticity. We will first fit the model before examining the model diagnostics. 
 
 ## Fitting the Model
 
 Fitting a tobit model is very similar to fitting a generalized linear model with the `glm()` function, and only has a few small differences compared to fitting an ANOVA model. 
 
-We will be using the `vglm()` function from the `{VGAM}` package. We first specify the name of the file the data is contained within, with the `data=` option, just as we have in previous functions. 
+We will be using the `vglm()` function from the `{VGAM}` package. We first specify the name of the dataset, with the `data=` option, just as we have in previous functions. 
 
 The second argument to the function is the model specification. The general form of a model is `response variable ~ explanatory variables + covariates`. This is the same format used by the `glm()` and `anova()` functions in R. In this case, we want to model procedure post-test scores as a function of experimental condition while controlling for procedure pre-test scores. 
 
-The last argument is where we specify that we are fitting a Tobit model. We do this by using the `family=tobit()` option. We must also specific the minimum possible score and the maximum possible score with the `Lower=` and `Upper=` options.  
+The last argument is where we specify that we are fitting a tobit model. We do this by using the `family=tobit()` option. We must also specific the minimum possible score and the maximum possible score with the `Lower=` and `Upper=` options.  
 
 ```{r}
 tb.mdl <- vglm(
@@ -205,60 +237,65 @@ tb.mdl <- vglm(
 
 ## Residual Analysis
 
-Before we inspect the model summary, we must ensure that the  model assumptions are met. There are two assumptions to Tobit regression, the same as to all general linear regression including ANOVA: residuals must be normally distributed, and the variables of the residuals should not change as a function of the explanatory variables. 
+Before we inspect the model summary, we must ensure that the  model assumptions are met. There are two assumptions to tobit regression, the same as to all general linear regression including ANOVA: residuals must be normally distributed, and the variables of the residuals should not change as a function of the explanatory variables. 
+
+\newpage
 
 ### Normality
 
 In order to check the normality of residuals, we use the Normal QQ Plot. When the points form a straight line, it is an indication that the residuals can indeed be appropriately modeled by a normal distribution. 
 
 ```{r}
-resid(tb.mdl, type = "response") %>% qqnorm(main="Normal QQ plot for Tobit  Model Residuals")
+resid(tb.mdl, type = "response") %>% # extract residuals from the model
+  qqnorm(main="Normal QQ plot for Tobit  Model Residuals")
 ```
 
 In this case, it does not appear that there are any major violations of the assumption that the residuals should be normally distribution. 
 
+\newpage
+
 We can also examine the distribution via a density plot. When the line based on our data falls entirely within the blue region (representing what we'd expect under a normal distribution), then we have no reason to worry that the normality assumption is violated. 
 
 ```{r}
-resid(tb.mdl, type = "response") %>% sm.density(model = "normal")
+resid(tb.mdl, type = "response") %>%
+  sm.density(model = "normal") # add an envelope based on the normal distribution
 title(main="Density Plot for Tobit Model Residuals",
       sub="Blue Envelope for Fitted Normal Distribution")
 ```
 
 Indeed, it does not appear that the normality assumption is violated, as the black line representing the distribution of residuals for our data falls entirely within the blue region. 
 
+\newpage
+
 ### Homoscedasticity 
 
-Interpreting homoscedasticity from residual vs fitted plots in censored models is a little bit tricky because of the ceiling effect. For example, it is not possible to have a positive residual for a predicted score at the ceiling. Similarly, there is an upper limit to the positive residuals for any given predicted score, as scores are limited by the ceiling. 
-
-Therefore, the main goal of the residual vs fitted plot is to ensure there are no obvious patterns in the plot. 
+Interpreting homoscedasticity from residual vs fitted plots for the tobit model is a little bit tricky because of the ceiling effect. For example, it is not possible to have a positive residual for a predicted score at the ceiling, since the observed score can never be more than 40. Similarly, there is an upper limit to the positive residuals for any given predicted score, as scores are limited by the ceiling. Therefore, the main goal of the residual vs fitted plot is to ensure there are no obvious patterns in the plot. 
 
 ```{r}
 data.frame(
  r=resid(tb.mdl, type = "response"),
- f=fitted(tb.mdl, type = "censored")
+ f=fitted(tb.mdl, type = "censored") # extract predicted scores
 ) %>%
 ggplot(aes(x=f, y=r)) + 
   geom_jitter(alpha=0.5, width=0.5, height=0.5) +
   ggtitle("Residual v Fitted Plot for Tobit Regression Model") +
-  ylab("Residuals") + 
-  xlab("Fitted Scores (out of 40)") +
-  geom_abline(slope=-1, intercept=40, alpha=0.5)
+  theme_tufte() +  ylab("Residuals") +  xlab("Fitted Scores (out of 40)") +
+  geom_abline(slope=-1, intercept=40, alpha=0.5) # add a line at the ceiling
 ```
 
-We see that residuals are mainly limited by the presence of the ceiling (denoted by the sloping line). However, residuals generally fall between +10 and -10, and we can only assume that the they fail to reach as high as +10 due to the ceiling for fitted scores above 30. 
-
-No other obvious patterns in the residuals exist, such as an obvious curvilinear pattern, and therefore, it appears that the homoscedasticity assumption is not violated. 
+We see that residuals are mainly limited by the presence of the ceiling (denoted by the sloping line). However, residuals generally fall between +10 and -10, and we can only assume that the they fail to reach as high as +10 for fitted scores above 30 due to the ceiling. No other obvious patterns in the residuals exist, such as an obvious curvilinear pattern, and therefore it appears that the homoscedasticity assumption is not violated. 
 
 There are two potential extreme values with residuals near -20, but in-person follow-up determined that these are not data errors, and thus the observations were retained in the dataset. 
 
+\newpage
+
 ## Interpreting the model 
 
-Now that we have verified that no model assumptions are violated, we can therefore conclude that the Tobit model is an appropriate and useful model to help us analyze the dataset, and can begin interpreting the fitted model.
+Now that we have verified that no model assumptions are violated, we can therefore conclude that the tobit model is an appropriate and useful model to help us analyze the dataset, and can begin interpreting the fitted model.
 
 ### Experimental Condition 
 
-The first step in interpreting the model is to determine whether there are differences in post-test scores by condition. To do this, we utilize the ANOVA Type 3 Sums of Squares. This test examines the ratio of the variance between groups to the variance within groups. Note, this test, though it bears the name `ANOVA`, is *not* the same thing as fitting an ANOVA model to compare a difference in group means, although it is similar. 
+The first step in interpreting the model is to determine whether there are differences in post-test scores by experimental condition. To do this, we utilize the ANOVA Type 3 Sums of Squares. This test examines the ratio of the variance between groups to the variance within groups. Note, this test, though it bears the name `ANOVA`, is *not* the same thing as fitting an ANOVA model to compare a difference in group means, although the underlying mathematics are similar. 
 
 ```{r}
 anova.vglm(tb.mdl, type="III")
@@ -268,25 +305,25 @@ We see from the Type III tests that there appears to be strong evidence indicati
 
 ### Estimated group differences
 
-What are the estimated differences in the mean scores for each group? We can examine this by simply viewing the model summary. 
+What are the estimated differences in the mean scores for each group? For generalized linear models fit with the `glm()` function, we might use the `{emmeans}` package. However, this package is not compatible with the tobit regression model. Therefore, we can examine group differences by simply viewing the model summary. 
 
 ```{r}
 summary(tb.mdl)
 ```
 
-The first two values reported as Intercept1 and Intercept2 are the predicted mean when covariates=0 and the log of the residual standard error. In this case, for students in the control group with a pre-test score of 0 and whole number knowledge score of 0, the model predicts that they will have an average post-test score of 19.71. Similarly, by exponentiating 1.972, we can estimate that the residual standard error for students scores is approximately 7.18. 
+The first two values reported as Intercept1 and Intercept2 are the predicted mean when covariates=0 and the log of the residual standard error. In this case, for students in the `Control` condition with a pre-test score of 0, the model predicts that they will have an average post-test score of 19.71. Similarly, by exponentiating 1.972, we can estimate that the residual standard error for students scores is approximately 7.18. 
 
-The next two values reported are indicator variables for the `Concepts-First` and the `Iterative` groups. In this case, the model estimates that the average score for students in the `Concepts-First` group is 3.58 points higher than the average score for students in the `Control` group (*p* = 0.051; approximately 9% points), while the average score in the `Iterative` is 6.58 points higher than the `Control` group's average (*p* = 0.0004; approximately 16% points). 
+The next two values reported are indicator variables for the `Concepts-First` and the `Iterative` conditions In this case, the model estimates that the average score for students in the `Concepts-First` condition is 3.58 points higher than the average score for students in the `Control` condition (*p* = 0.051; approximately 9% points), while the average score in the `Iterative` condition is 6.58 points higher than the `Control` condition's average (*p* = 0.0004; approximately 16% points). 
 
-The final value reported is the estimate for the regression coefficients for the covariate in the model, pre-test scores. 
+The final value reported is the estimate of the regression coefficient for the covariate in the model, pre-test scores. 
 
-Recall that the ANOVA-based model would have likely underestimated the true differences in this case. Indeed, the ANCOVA model estimates the differences between the `Concepts-First` group and the `Control` group as 2.33 and between the `Iterative` group and the `Control` group as 4.17 after adjusting for pre-test scores, which are both near a 35% underestimation compared to the Tobit model estimated differences. 
-
-We can also create confidence intervals for the regression coefficients using the `confintvglm()` function, used here to create 95% confidence intervals for the difference in mean scores for the two experimental conditions compared to the `Control` Group.
+We can also create confidence intervals for the regression coefficients using the `confintvglm()` function, used here to create 95% confidence intervals for the difference in mean scores for the two experimental conditions compared to the `Control` condition.
 
 ```{r}
 confintvglm(tb.mdl)[3:4,]
 ```
+
+Recall that the ANOVA-based model would have likely underestimated the true differences in this case. Indeed, the ANCOVA model estimates the differences between the `Concepts-First` condition and the `Control` condition as 2.33 and between the `Iterative` condition and the `Control` condition as 4.17 after adjusting for pre-test scores, which are both near a 35% underestimation compared to the Tobit model estimated differences. 
 
 ### Effect sizes
 
@@ -297,13 +334,13 @@ We can convert these estimates into effect sizes akin to Cohen's *d* by utilizin
 coef(tb.mdl)[3:4] / exp(coef(tb.mdl)[2])
 ```
 
-There appears to be a medium effect on post-test scores based on the Concepts-First condition, and a large effect on post-test scores in the Iterative condition. 
+There appears to be a medium effect on post-test scores comparing the `Concepts-First` condition to the `Control` condition (0.498), and a large effect on post-test scores comparing the `Iterative` condition to the `Control` condition (0.916). 
 
 It should be noted that Tobit regression *can* result in slight over-estimations of the effect size. However, with the `<70%` rule clearly met, the overestimation should not be any more than 0.025 in terms of the effect size, and therefore would not alter our interpretations. 
 
 ### Multiple Comparisons
 
-While the standard model output allowed us to compare both experimental conditions to the `Control` Group, we may be interested in comparing the experimental conditions to each other. We can achieve this by specifying contrasts. The `contr.sdif` function from the `{MASS}` package will allow us to interpret regression coefficients in terms of successive differences. That is, the first estimate will provide the difference between the `Concepts-First` and the `Control` group, while the second estimate will provide the difference between the `Iterative` and the `Concepts-First` group, based on the order of the levels in our variable. 
+While the standard model output allowed us to compare both experimental conditions to the `Control` condition, we may be interested in comparing the experimental conditions to each other. We can achieve this by specifying contrasts. The `contr.sdif` function from the `{MASS}` package will allow us to interpret regression coefficients in terms of successive differences. That is, the first estimate will provide the difference between the `Concepts-First` and the `Control` conditions, while the second estimate will provide the difference between the `Iterative` and the `Concepts-First` conditions, based on the order of the levels in our variable. 
 
 ```{r}
 tb.mdl.2 <- vglm(
@@ -318,7 +355,7 @@ confintvglm(tb.mdl.2)[4,]
 coef(tb.mdl.2)[4] / exp(coef(tb.mdl.2)[2])
 ```
 
-We now see that the estimated difference in the mean scores between the `Iterative` group and the `Concepts-First` group is approximately 3.00 (*p*=0.118; approximately 7.5% points; moderate effect size of 0.418). 
+We now see that the estimated difference in the mean scores between the `Iterative` condition and the `Concepts-First` condition is approximately 3.00 (approximately 7.5% points; *p*=0.118; 95% CI: -.757 to 6.758; moderate effect size of 0.418). 
 
 
 # SUMMARY
@@ -330,4 +367,4 @@ When faced with a CFE, four easy steps can be taken to confidently and more prec
 - Determine the appropriateness of an ANOVA and/or Tobit model
 - Fit and Interpret a Tobit Regression Model if appropriate
 
-All four of these steps can easily be performed in R, as shown in this document. While Tobit models have more advanced extensions (i.e. generalized Tobit regression), the basic linear Tobit regression model can help school psychology researchers mitigate measurement problems and while providing more precise estimates of intervention effects.  
+All four of these steps can easily be performed in R, as shown in this document. While Tobit models have more advanced extensions (i.e. generalized tobit regression), the basic linear Tobit regression model can help school psychology researchers mitigate measurement problems and provide more precise estimates of intervention effects.  
